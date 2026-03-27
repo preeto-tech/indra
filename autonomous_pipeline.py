@@ -1,17 +1,17 @@
 """
-INDRA — Autonomous Data Pipeline
-=================================
-Zero manual input. Run once and the graph builds itself.
+INDRA — Autonomous Global Ontology Engine
+==========================================
+AI-powered intelligence graph covering geopolitics, economics, defense,
+technology, climate, and society.
 
-Sources (all free, no API key needed except NewsData):
-  1. RSS feeds          — Indian & international news (PIB, IE, Hindu, TOI, Livemint)
-  2. NewsData.io API    — India-focused news (free: 200 req/day)
+Sources: 25+ verified RSS feeds across 6 domains (all free, no API keys needed except NewsData).
 
 Run modes:
-  python autonomous_pipeline.py bootstrap   # First-time: loads recent data
-  python autonomous_pipeline.py sync        # Incremental: pulls only new articles
-  python autonomous_pipeline.py watch       # Continuous: polls every 15 minutes
-  python autonomous_pipeline.py query "your question"
+  python autonomous_pipeline.py bootstrap              # First-time: loads recent data
+  python autonomous_pipeline.py sync                   # Incremental: pulls latest
+  python autonomous_pipeline.py watch                  # Continuous: polls every 15 min
+  python autonomous_pipeline.py query "your question"  # Query all domains
+  python autonomous_pipeline.py query "..." --domain defense  # Domain-filtered query
 """
 
 import os
@@ -32,19 +32,57 @@ WORKING_DIR  = "./indra_data"
 SEEN_FILE    = "./indra_data/seen_articles.json"
 NEWSDATA_KEY = os.getenv("NEWSDATA_API_KEY", "")
 
-# Verified-working RSS feeds (tested 2026-03-27)
-RSS_SOURCES = {
-    # ── International / geopolitics ──
-    "The Hindu Intl":    "https://www.thehindu.com/news/international/?service=rss",
-    "The Hindu National":"https://www.thehindu.com/news/national/?service=rss",
-    "IE World":          "https://indianexpress.com/section/world/feed/",
-    "IE India":          "https://indianexpress.com/section/india/feed/",
-    "TOI World":         "https://timesofindia.indiatimes.com/rssfeeds/296589292.cms",
-    "TOI India":         "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms",
-    # ── Economy & strategic ──
-    "Livemint Economy":  "https://www.livemint.com/rss/economy",
-    "Livemint Politics": "https://www.livemint.com/rss/politics",
+# ── Domain-tagged RSS Source Registry ─────────────────────────────────────────
+# Every source is tagged with a domain for ontology classification.
+# All feeds verified working as of 2026-03-27.
+
+DOMAIN_SOURCES = {
+    "geopolitics": {
+        "The Hindu Intl":     "https://www.thehindu.com/news/international/?service=rss",
+        "IE World":           "https://indianexpress.com/section/world/feed/",
+        "TOI World":          "https://timesofindia.indiatimes.com/rssfeeds/296589292.cms",
+        "BBC World":          "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "Al Jazeera":         "https://www.aljazeera.com/xml/rss/all.xml",
+        "NYT World":          "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+    },
+    "economics": {
+        "Livemint Economy":   "https://www.livemint.com/rss/economy",
+        "Livemint Politics":  "https://www.livemint.com/rss/politics",
+        "NYT Business":       "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
+        "IE Business":        "https://indianexpress.com/section/business/feed/",
+    },
+    "defense": {
+        "The Hindu National": "https://www.thehindu.com/news/national/?service=rss",
+        "IE India":           "https://indianexpress.com/section/india/feed/",
+        "TOI India":          "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms",
+        "Wired Security":     "https://www.wired.com/feed/category/security/latest/rss",
+    },
+    "technology": {
+        "TechCrunch":         "https://feeds.feedburner.com/TechCrunch/",
+        "Wired":              "https://www.wired.com/feed/rss",
+        "Ars Technica":       "https://feeds.arstechnica.com/arstechnica/index",
+        "NYT Technology":     "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
+    },
+    "climate": {
+        "NYT Climate":        "https://rss.nytimes.com/services/xml/rss/nyt/Climate.xml",
+        "The Hindu Sci-Tech": "https://www.thehindu.com/sci-tech/?service=rss",
+        "BBC Science":        "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+    },
+    "society": {
+        "The Hindu Opinion":  "https://www.thehindu.com/opinion/?service=rss",
+        "IE Explained":       "https://indianexpress.com/section/explained/feed/",
+        "NYT Asia":           "https://rss.nytimes.com/services/xml/rss/nyt/AsiaPacific.xml",
+        "BBC Asia":           "https://feeds.bbci.co.uk/news/world/asia/rss.xml",
+    },
 }
+
+# Flatten for backward compat
+RSS_SOURCES = {}
+SOURCE_DOMAIN_MAP = {}
+for domain, sources in DOMAIN_SOURCES.items():
+    for name, url in sources.items():
+        RSS_SOURCES[name] = url
+        SOURCE_DOMAIN_MAP[name] = domain
 
 os.makedirs(WORKING_DIR, exist_ok=True)
 
@@ -70,6 +108,8 @@ def fetch_rss(name: str, url: str, max_items: int = 20) -> list:
     """Fetch articles from a single RSS feed with retry logic."""
     import requests
 
+    domain = SOURCE_DOMAIN_MAP.get(name, "general")
+
     for attempt in range(2):  # 1 retry
         try:
             resp = requests.get(
@@ -93,11 +133,16 @@ def fetch_rss(name: str, url: str, max_items: int = 20) -> list:
                 desc  = (getattr(item.find("description"), "text", "") or "").strip()
                 date  = (getattr(item.find("pubDate"), "text", "") or "").strip()
 
-                # For Atom feeds
+                # For Atom feeds, extract link from href attribute
                 if not link:
                     link_el = item.find("{http://www.w3.org/2005/Atom}link")
                     if link_el is not None:
                         link = link_el.get("href", "")
+                # Some RSS feeds put link in guid
+                if not link:
+                    guid_el = item.find("guid")
+                    if guid_el is not None and guid_el.text and guid_el.text.startswith("http"):
+                        link = guid_el.text
 
                 if title and link:
                     articles.append({
@@ -105,34 +150,50 @@ def fetch_rss(name: str, url: str, max_items: int = 20) -> list:
                         "url": link,
                         "date": date,
                         "source": name,
+                        "domain": domain,
                         "text": f"{title}. {desc}"[:2000],
                     })
-            print(f"  [RSS] {name}: {len(articles)} articles")
+            print(f"  [{domain.upper():>12}] {name}: {len(articles)} articles")
             return articles
 
         except requests.exceptions.Timeout:
             if attempt == 0:
-                print(f"  [RSS] {name}: timeout, retrying...")
+                print(f"  [{domain.upper():>12}] {name}: timeout, retrying...")
                 time.sleep(1)
             else:
-                print(f"  [RSS] {name}: timeout after retry — skipping")
+                print(f"  [{domain.upper():>12}] {name}: timeout after retry — skipping")
                 return []
         except Exception as e:
-            print(f"  [RSS] {name}: error — {e}")
+            print(f"  [{domain.upper():>12}] {name}: error — {e}")
             return []
 
 
-def fetch_all_rss() -> list:
-    """Fetch from all RSS sources with progress tracking."""
-    print("\n[RSS] Fetching from all sources...")
+def fetch_all_rss(domains: list = None) -> list:
+    """Fetch from all RSS sources, optionally filtered by domain."""
+    if domains:
+        sources = {}
+        for d in domains:
+            if d in DOMAIN_SOURCES:
+                sources.update(DOMAIN_SOURCES[d])
+    else:
+        sources = RSS_SOURCES
+
+    print(f"\n[RSS] Fetching from {len(sources)} sources across {len(DOMAIN_SOURCES)} domains...")
     all_articles = []
     success_count = 0
-    for name, url in RSS_SOURCES.items():
+    domain_counts = {}
+
+    for name, url in sources.items():
         articles = fetch_rss(name, url)
         if articles:
             success_count += 1
+            d = articles[0].get("domain", "unknown")
+            domain_counts[d] = domain_counts.get(d, 0) + len(articles)
         all_articles.extend(articles)
-    print(f"  [RSS] Total: {len(all_articles)} articles from {success_count}/{len(RSS_SOURCES)} feeds")
+
+    print(f"\n  [RSS] Total: {len(all_articles)} articles from {success_count}/{len(sources)} feeds")
+    for d, count in sorted(domain_counts.items()):
+        print(f"         {d}: {count}")
     return all_articles
 
 
@@ -164,6 +225,7 @@ def fetch_newsdata(query: str = "India geopolitics defense") -> list:
                 "url":    item.get("link", ""),
                 "date":   item.get("pubDate", ""),
                 "source": item.get("source_id", "newsdata"),
+                "domain": "geopolitics",
                 "text":   (item.get("title", "") + ". " + (item.get("description") or ""))[:2000],
             })
         print(f"  [NewsData] Got {len(articles)} articles")
@@ -288,6 +350,7 @@ async def ingest_articles_to_graph(articles: list, fetch_full_text: bool = False
     seen = load_seen()
     new_count = 0
     errors = 0
+    domain_ingested = {}
 
     for article in articles:
         aid = article_id(article["url"])
@@ -299,7 +362,11 @@ async def ingest_articles_to_graph(articles: list, fetch_full_text: bool = False
             print(f"  [Fetch] {article['title'][:60]}...")
             text = fetch_article_text(article["url"], text)
 
+        domain = article.get("domain", "general")
+
+        # Domain-tagged document format for ontology classification
         doc = f"""
+DOMAIN: {domain}
 SOURCE: {article.get('source','unknown')}
 DATE: {article.get('date','unknown')}
 TITLE: {article.get('title','')}
@@ -312,25 +379,35 @@ URL: {article.get('url','')}
             continue
 
         try:
-            print(f"  [Graph] Ingesting: {article['title'][:70]}...")
+            print(f"  [{domain.upper():>12}] Ingesting: {article['title'][:65]}...")
             await rag.ainsert(doc)
             seen.add(aid)
             new_count += 1
+            domain_ingested[domain] = domain_ingested.get(domain, 0) + 1
             await asyncio.sleep(0.3)
         except Exception as e:
             errors += 1
-            print(f"  [Graph] Failed: {e}")
+            print(f"  [{domain.upper():>12}] Failed: {e}")
 
     save_seen(seen)
     print(f"\n[Graph] Ingested {new_count} new articles. Errors: {errors}. Total seen: {len(seen)}")
+    if domain_ingested:
+        print("[Graph] By domain:")
+        for d, count in sorted(domain_ingested.items()):
+            print(f"         {d}: {count}")
     return new_count
 
 
 # ── Query engine ──────────────────────────────────────────────────────────────
 
-async def query_graph(question: str, mode: str = "hybrid") -> str:
+async def query_graph(question: str, mode: str = "hybrid", domain: str = None) -> str:
     from lightrag import QueryParam
     rag = await _create_rag()
+
+    # If domain filter is requested, prepend it to the question for context
+    if domain:
+        question = f"[Domain: {domain}] {question}"
+
     try:
         return await rag.aquery(question, param=QueryParam(mode=mode))
     except Exception as e:
@@ -344,25 +421,27 @@ async def query_graph(question: str, mode: str = "hybrid") -> str:
 
 async def bootstrap():
     print("\n" + "="*60)
-    print("INDRA BOOTSTRAP — Loading intelligence from all sources")
+    print("INDRA BOOTSTRAP — Global Ontology Engine")
     print("="*60)
+    print(f"Domains: {', '.join(DOMAIN_SOURCES.keys())}")
+    print(f"Total feeds: {len(RSS_SOURCES)}")
     rss     = fetch_all_rss()
     news    = fetch_newsdata("India defense geopolitics Pakistan China")
     all_art = rss + news
     print(f"\n[Pipeline] Total articles to ingest: {len(all_art)}")
     await ingest_articles_to_graph(all_art, fetch_full_text=False)
-    print("\n[INDRA] Bootstrap complete. Graph is ready.")
+    print("\n[INDRA] Bootstrap complete. Global ontology graph is ready.")
 
 
 async def sync():
-    print("\n[INDRA] Sync — pulling latest articles...")
+    print(f"\n[INDRA] Sync — pulling latest articles from {len(RSS_SOURCES)} feeds...")
     rss = fetch_all_rss()
     await ingest_articles_to_graph(rss, fetch_full_text=False)
     print(f"[INDRA] Sync complete at {datetime.datetime.now().strftime('%H:%M:%S')}")
 
 
 async def watch():
-    print("\n[INDRA] Watch mode — syncing every 15 minutes. Ctrl+C to stop.\n")
+    print(f"\n[INDRA] Watch mode — syncing {len(RSS_SOURCES)} feeds every 15 min. Ctrl+C to stop.\n")
     while True:
         try:
             await sync()
@@ -382,14 +461,19 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 2:
-        print("""
-INDRA Autonomous Pipeline
---------------------------
-  python autonomous_pipeline.py bootstrap        # Load recent articles (run once)
-  python autonomous_pipeline.py sync             # Pull latest articles
-  python autonomous_pipeline.py watch            # Continuous 15min polling
-  python autonomous_pipeline.py query "..."      # Query the graph
-  python autonomous_pipeline.py sources          # List data sources
+        print(f"""
+INDRA — Global Ontology Engine
+================================
+  Domains: {', '.join(DOMAIN_SOURCES.keys())}
+  Feeds:   {len(RSS_SOURCES)} verified sources
+
+Commands:
+  python autonomous_pipeline.py bootstrap                      # Load recent articles
+  python autonomous_pipeline.py sync                           # Pull latest
+  python autonomous_pipeline.py watch                          # Continuous polling
+  python autonomous_pipeline.py query "..."                    # Query all domains
+  python autonomous_pipeline.py query "..." --domain defense   # Domain-filtered
+  python autonomous_pipeline.py sources                        # List all sources
         """)
         sys.exit(0)
 
@@ -402,16 +486,38 @@ INDRA Autonomous Pipeline
     elif cmd == "watch":
         asyncio.run(watch())
     elif cmd == "query" and len(sys.argv) > 2:
-        q = " ".join(sys.argv[2:])
+        # Parse args: query "question" [--domain DOMAIN]
+        args = sys.argv[2:]
+        domain_filter = None
+        question_parts = []
+        i = 0
+        while i < len(args):
+            if args[i] == "--domain" and i + 1 < len(args):
+                domain_filter = args[i + 1]
+                i += 2
+            else:
+                question_parts.append(args[i])
+                i += 1
+        q = " ".join(question_parts)
         print(f"\n[INDRA] Querying: {q}")
-        result = asyncio.run(query_graph(q))
+        if domain_filter:
+            print(f"[INDRA] Domain filter: {domain_filter}")
+        result = asyncio.run(query_graph(q, domain=domain_filter))
         print("\n" + "="*60)
         print("INDRA INTELLIGENCE RESPONSE:")
         print("="*60)
         print(result)
     elif cmd == "sources":
-        print(f"\nRSS feeds ({len(RSS_SOURCES)}):")
-        for n, u in RSS_SOURCES.items(): print(f"  {n}: {u}")
-        print(f"\nNewsData: {'configured' if NEWSDATA_KEY else 'not set (get free key at newsdata.io)'}")
+        total = 0
+        for domain, sources in DOMAIN_SOURCES.items():
+            print(f"\n{'─'*40}")
+            print(f"  {domain.upper()} ({len(sources)} feeds)")
+            print(f"{'─'*40}")
+            for n, u in sources.items():
+                print(f"  {n}: {u}")
+            total += len(sources)
+        print(f"\n{'='*40}")
+        print(f"  TOTAL: {total} feeds across {len(DOMAIN_SOURCES)} domains")
+        print(f"  NewsData: {'✓ configured' if NEWSDATA_KEY else '✗ not set (get free key at newsdata.io)'}")
     else:
         print(f"Unknown command: {cmd}")
