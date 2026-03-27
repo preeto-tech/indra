@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>INDRA — Intelligence Graph</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:#0A1628; color:#fff; font-family:'Inter',system-ui,sans-serif; height:100vh; overflow:hidden; }
+
+    /* ── Header ── */
+    .header {
+      display:flex; align-items:center; gap:16px;
+      padding:12px 24px; border-bottom:1px solid #1a2a4a;
+      background:#0A1628; z-index:10;
+    }
+    .logo { font-size:22px; font-weight:700; color:#00C896; letter-spacing:3px; }
+    .tagline { font-size:12px; color:#5a7a9a; }
+    .status-dot { width:8px; height:8px; border-radius:50%; background:#00C896; animation:pulse 2s infinite; margin-left:auto; }
+    .status-label { font-size:11px; color:#5a7a9a; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* ── Layout ── */
+    .layout { display:grid; grid-template-columns:340px 1fr; height:calc(100vh - 49px); }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      padding:20px; border-right:1px solid #1a2a4a;
+      overflow-y:auto; display:flex; flex-direction:column; gap:20px;
+      scrollbar-width:thin; scrollbar-color:#1a2a4a #0A1628;
+    }
+
+    .section-label {
+      font-size:10px; font-weight:600; letter-spacing:2px;
+      text-transform:uppercase; color:#00C896; margin-bottom:10px;
+    }
+
+    /* ── Stat cards ── */
+    .stats { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .stat-card {
+      background:#0d1f35; border:1px solid #1a3a5a; border-radius:8px;
+      padding:14px; text-align:center;
+    }
+    .stat-num { font-size:26px; font-weight:700; color:#00C896; }
+    .stat-label { font-size:10px; color:#5a7a9a; margin-top:4px; }
+
+    /* ── Buttons ── */
+    .btn {
+      width:100%; padding:11px; border:none; border-radius:8px;
+      font-weight:600; font-size:13px; cursor:pointer;
+      letter-spacing:.5px; transition:all .2s;
+    }
+    .btn-primary { background:#00C896; color:#0A1628; }
+    .btn-primary:hover { background:#00a87e; }
+    .btn-secondary { background:#0d1f35; color:#00C896; border:1px solid #1a3a5a; }
+    .btn-secondary:hover { border-color:#00C896; }
+    .btn:disabled { opacity:.4; cursor:not-allowed; }
+
+    /* ── Upload zone ── */
+    .upload-zone {
+      border:2px dashed #1a3a5a; border-radius:8px; padding:18px;
+      text-align:center; cursor:pointer; transition:all .2s;
+    }
+    .upload-zone:hover { border-color:#00C896; background:#0d2035; }
+    .upload-icon { font-size:20px; margin-bottom:6px; }
+    .upload-hint { font-size:12px; color:#5a7a9a; }
+
+    /* ── Query box ── */
+    .query-textarea {
+      width:100%; background:#0d1f35; border:1px solid #1a3a5a;
+      border-radius:8px; color:#fff; padding:12px; font-size:13px;
+      resize:none; outline:none; line-height:1.6; font-family:inherit;
+    }
+    .query-textarea:focus { border-color:#00C896; }
+    .query-textarea::placeholder { color:#3a5a7a; }
+
+    /* ── Mode selector ── */
+    .mode-row { display:flex; gap:8px; margin-bottom:10px; }
+    .mode-btn {
+      flex:1; padding:7px; background:#0d1f35; border:1px solid #1a3a5a;
+      color:#5a7a9a; border-radius:6px; font-size:11px; cursor:pointer;
+      transition:all .2s; font-weight:500;
+    }
+    .mode-btn.active { background:#00C896; border-color:#00C896; color:#0A1628; }
+
+    /* ── Answer box ── */
+    .answer-box {
+      background:#0d1f35; border:1px solid #1a3a5a; border-radius:8px;
+      padding:14px; font-size:12px; line-height:1.8; color:#aabbcc;
+      white-space:pre-wrap; min-height:100px; max-height:260px; overflow-y:auto;
+    }
+    .answer-box.loading { color:#5a7a9a; font-style:italic; }
+
+    /* ── Log ── */
+    .log-box {
+      background:#060f1c; border:1px solid #1a2a4a; border-radius:8px;
+      padding:10px; font-size:11px; color:#3a6a5a; font-family:monospace;
+      height:80px; overflow-y:auto; line-height:1.6;
+    }
+
+    /* ── Graph area ── */
+    .graph-area { position:relative; background:#080f1e; }
+    .graph-frame { width:100%; height:100%; border:none; }
+
+    .graph-overlay {
+      position:absolute; inset:0; background:#0A1628ee;
+      display:flex; flex-direction:column; align-items:center;
+      justify-content:center; gap:12px;
+    }
+    .graph-overlay.hidden { display:none; }
+    .overlay-icon { font-size:48px; opacity:.3; }
+    .overlay-text { font-size:14px; color:#5a7a9a; text-align:center; }
+
+    /* ── Progress bar ── */
+    .progress-bar {
+      height:2px; background:#00C896; width:0%;
+      transition:width .3s; border-radius:1px;
+      margin-top:8px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">INDRA</div>
+  <div class="tagline">Intelligence Graph — Autonomous Geopolitical Analysis</div>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-label" id="statusLabel">Checking...</span>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="sidebar">
+
+    <!-- Stats -->
+    <div>
+      <div class="section-label">Graph Status</div>
+      <div class="stats">
+        <div class="stat-card">
+          <div class="stat-num" id="articleCount">—</div>
+          <div class="stat-label">Articles Ingested</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="nodeCount">—</div>
+          <div class="stat-label">Graph Entities</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Data controls -->
+    <div>
+      <div class="section-label">Data Pipeline</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-primary" id="bootstrapBtn" onclick="runBootstrap()">
+          ⬇ Bootstrap (load 7 days)
+        </button>
+        <button class="btn btn-secondary" id="syncBtn" onclick="runSync()">
+          ↺ Sync now (last 24h)
+        </button>
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+    </div>
+
+    <!-- Manual PDF upload -->
+    <div>
+      <div class="section-label">Manual Ingest (optional)</div>
+      <div class="upload-zone" onclick="document.getElementById('pdfInput').click()">
+        <input type="file" id="pdfInput" accept=".pdf" style="display:none" onchange="uploadPDF(this)">
+        <div class="upload-icon">📄</div>
+        <div class="upload-hint">Drop a PDF or click to upload</div>
+      </div>
+    </div>
+
+    <!-- Query -->
+    <div>
+      <div class="section-label">Intelligence Query</div>
+      <div class="mode-row">
+        <button class="mode-btn active" id="mode-hybrid" onclick="setMode('hybrid')">Hybrid</button>
+        <button class="mode-btn" id="mode-global" onclick="setMode('global')">Global</button>
+        <button class="mode-btn" id="mode-local" onclick="setMode('local')">Local</button>
+      </div>
+      <textarea class="query-textarea" id="queryInput" rows="4"
+        placeholder="How is Pakistan's economic crisis affecting India's defence posture?"></textarea>
+      <div style="margin-top:8px">
+        <button class="btn btn-primary" id="queryBtn" onclick="runQuery()">
+          Analyze Intelligence →
+        </button>
+      </div>
+    </div>
+
+    <!-- Answer -->
+    <div>
+      <div class="section-label">INDRA Response</div>
+      <div class="answer-box" id="answerBox">
+        Run bootstrap to load intelligence data, then ask a question.
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div>
+      <div class="section-label">System Log</div>
+      <div class="log-box" id="logBox">INDRA ready.</div>
+    </div>
+
+  </div>
+
+  <!-- Graph -->
+  <div class="graph-area">
+    <div class="graph-overlay" id="graphOverlay">
+      <div class="overlay-icon">⬡</div>
+      <div class="overlay-text">
+        Graph will appear here after bootstrap.<br>
+        <span style="font-size:11px;color:#3a5a7a">Click "Bootstrap" to load intelligence data.</span>
+      </div>
+    </div>
+    <iframe class="graph-frame" id="graphFrame" src="about:blank"></iframe>
+  </div>
+</div>
+
+<script>
+let currentMode = "hybrid";
+
+// ── Logging ───────────────────────────────────────────────────────────────────
+function log(msg) {
+  const box = document.getElementById("logBox");
+  const ts  = new Date().toLocaleTimeString();
+  box.textContent += `\n[${ts}] ${msg}`;
+  box.scrollTop = box.scrollHeight;
+}
+
+// ── Status polling ────────────────────────────────────────────────────────────
+async function checkStatus() {
+  try {
+    const res  = await fetch("/api/status");
+    const data = await res.json();
+    document.getElementById("articleCount").textContent = data.articles_ingested || 0;
+    document.getElementById("statusLabel").textContent  = data.graph_ready ? "Graph Active" : "No Data";
+    document.getElementById("statusDot").style.background = data.graph_ready ? "#00C896" : "#EF9F27";
+    if (data.graph_ready) loadGraphData();
+  } catch(e) {
+    document.getElementById("statusLabel").textContent = "Server offline";
+    document.getElementById("statusDot").style.background = "#E24B4A";
+  }
+}
+
+// ── Graph data ────────────────────────────────────────────────────────────────
+async function loadGraphData() {
+  try {
+    const res  = await fetch("/api/graph-data");
+    const data = await res.json();
+    document.getElementById("nodeCount").textContent = data.total_nodes || 0;
+    if (data.nodes && data.nodes.length > 0) {
+      document.getElementById("graphOverlay").classList.add("hidden");
+      renderGraph(data.nodes, data.edges);
+    }
+  } catch(e) {}
+}
+
+function renderGraph(nodes, edges) {
+  // Build a self-contained pyvis-style HTML and inject into iframe
+  const frame   = document.getElementById("graphFrame");
+  const doc     = frame.contentDocument || frame.contentWindow.document;
+  const graphHtml = buildVisGraph(nodes, edges);
+  doc.open(); doc.write(graphHtml); doc.close();
+}
+
+function buildVisGraph(nodes, edges) {
+  const nodeJs = nodes.map(n =>
+    `{id:"${n.id}",label:"${n.label}",color:"#00C896",size:20,font:{color:"#fff",size:12}}`
+  ).join(",");
+  const edgeJs = edges.map(e =>
+    `{from:"${e.from}",to:"${e.to}",label:"${e.label||''}",color:{color:"#1a4a3a",opacity:0.7},font:{color:"#5a9a7a",size:10}}`
+  ).join(",");
+
+  return `<!DOCTYPE html><html><head>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"><\/script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css">
+  <style>
+    body,html{margin:0;padding:0;background:#0A1628;overflow:hidden;}
+    #graph{width:100vw;height:100vh;}
+  </style></head><body>
+  <div id="graph"></div>
+  <script>
+    var nodes = new vis.DataSet([${nodeJs}]);
+    var edges = new vis.DataSet([${edgeJs}]);
+    var options = {
+      nodes:{borderWidth:1,borderColor:"#00C896",shape:"dot"},
+      edges:{smooth:{type:"curvedCW",roundness:0.2},arrows:{to:{enabled:true,scaleFactor:0.4}}},
+      physics:{forceAtlas2Based:{gravitationalConstant:-60,springLength:130},solver:"forceAtlas2Based"},
+      background:{color:"#0A1628"}
+    };
+    new vis.Network(document.getElementById("graph"), {nodes,edges}, options);
+  <\/script></body></html>`;
+}
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+async function runBootstrap() {
+  const btn = document.getElementById("bootstrapBtn");
+  const bar = document.getElementById("progressBar");
+  btn.disabled = true;
+  btn.textContent = "⬇ Bootstrapping...";
+  bar.style.width = "30%";
+  log("Bootstrap started — pulling last 7 days from GDELT + RSS feeds...");
+
+  try {
+    await fetch("/api/bootstrap", { method:"POST" });
+    bar.style.width = "60%";
+    log("Ingestion running in background — graph will update in 3-5 minutes...");
+
+    // Poll for completion
+    let polls = 0;
+    const interval = setInterval(async () => {
+      polls++;
+      bar.style.width = Math.min(60 + polls * 5, 95) + "%";
+      await checkStatus();
+      if (polls > 40) {
+        clearInterval(interval);
+        bar.style.width = "100%";
+        btn.disabled = false;
+        btn.textContent = "⬇ Bootstrap (load 7 days)";
+        log("Bootstrap complete.");
+        setTimeout(() => bar.style.width = "0%", 2000);
+      }
+    }, 15000);
+  } catch(e) {
+    log("Bootstrap error: " + e.message);
+    btn.disabled = false;
+    btn.textContent = "⬇ Bootstrap (load 7 days)";
+  }
+}
+
+// ── Sync ──────────────────────────────────────────────────────────────────────
+async function runSync() {
+  const btn = document.getElementById("syncBtn");
+  btn.disabled = true;
+  btn.textContent = "↺ Syncing...";
+  log("Sync started — pulling last 24h...");
+
+  try {
+    await fetch("/api/sync", { method:"POST" });
+    log("Sync running in background...");
+    setTimeout(() => {
+      checkStatus();
+      btn.disabled = false;
+      btn.textContent = "↺ Sync now (last 24h)";
+    }, 30000);
+  } catch(e) {
+    log("Sync error: " + e.message);
+    btn.disabled = false;
+    btn.textContent = "↺ Sync now (last 24h)";
+  }
+}
+
+// ── PDF Upload ────────────────────────────────────────────────────────────────
+async function uploadPDF(input) {
+  const file = input.files[0];
+  if (!file) return;
+  log(`Uploading ${file.name}...`);
+  const form = new FormData();
+  form.append("file", file);
+  try {
+    const res  = await fetch("/api/ingest/pdf", { method:"POST", body:form });
+    const data = await res.json();
+    log(`Ingested ${file.name}: ${data.pages} pages`);
+    checkStatus();
+  } catch(e) { log("Upload error: " + e.message); }
+}
+
+// ── Query ─────────────────────────────────────────────────────────────────────
+async function runQuery() {
+  const question = document.getElementById("queryInput").value.trim();
+  if (!question) return;
+
+  const btn    = document.getElementById("queryBtn");
+  const answer = document.getElementById("answerBox");
+
+  btn.disabled    = true;
+  btn.textContent = "Analyzing...";
+  answer.textContent = "⟳ Traversing knowledge graph...";
+  answer.className   = "answer-box loading";
+  log(`Query: "${question.substring(0,60)}..."`);
+
+  try {
+    const res  = await fetch("/api/query", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({question, mode: currentMode})
+    });
+    const data = await res.json();
+    answer.textContent = data.answer || data.error || "No response";
+    answer.className   = "answer-box";
+    log("Query complete.");
+    loadGraphData();
+  } catch(e) {
+    answer.textContent = "Error: " + e.message;
+    answer.className   = "answer-box";
+    log("Query error: " + e.message);
+  }
+
+  btn.disabled    = false;
+  btn.textContent = "Analyze Intelligence →";
+}
+
+// ── Mode selector ─────────────────────────────────────────────────────────────
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
+  document.getElementById(`mode-${mode}`).classList.add("active");
+}
+
+// ── Enter key to query ────────────────────────────────────────────────────────
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.ctrlKey) runQuery();
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+checkStatus();
+setInterval(checkStatus, 30000);
+</script>
+</body>
+</html>

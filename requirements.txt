@@ -1,0 +1,12 @@
+lightrag-hku
+openai
+python-dotenv
+fastapi
+uvicorn[standard]
+pypdf
+requests
+networkx
+pyvis
+transformers
+sentence-transformers
+feedparser
